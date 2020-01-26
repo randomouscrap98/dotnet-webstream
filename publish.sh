@@ -13,6 +13,8 @@
 # - Copy publish to remote at install location
 # - Set up remote system (permissions, services(?), dbmigrations, etc)
 
+appname=stream
+
 # Stuff for connecting
 phost=random@oboy.smilebasicsource.com    # The production server (and user to connect)
 port=240
@@ -24,12 +26,8 @@ corev=3.0            # The version of dotnet core we're using
 
 # My places!
 lpfolder="./bin/Release/netcoreapp$corev/$mtype/publish/"   # The LOCAL location to retrieve binaries
-pfolder="/storage/random/stream"                            # The REMOTE location to PLACE all files
-dfolder="projectData"                                       # LOCAL Data folder
+pfolder="/var/www/$appname"                                 # The REMOTE location to PLACE all files
 cwd="`pwd`"
-
-# Data(base) stuff
-db=content.db
 
 echo "Publishing to $pfolder"
 
@@ -44,16 +42,7 @@ hostrsync()
 # A dotnet publish SHOULD do everything required to make the product. It just
 # doesn't include our personal extras (it probably could though)
 rm -rf "$lpfolder"
-dotnet publish -r $mtype -c Release -p:PublishSingleFile=true
-
-# Now copy all the dependencies before we rsync. We go INTO the dependency
-# (data) directory before pulling out the current schema from our "base" sqlite
-# database. We keep a "base" to make life simple (we can use the UI to manage
-# structure/etc)
-cd "$dfolder"
-  ./extractSchema.sh
-  ./copyDependencies.sh "$cwd/$lpfolder"  # We make the local publish folder look exactly how 
-cd "$cwd"                                 # we want the remote folder to look
+dotnet publish -r $mtype -c Release # -p:PublishSingleFile=true
 
 # Now put the stuff on the server! A simple direct copy
 hostrsync "$lpfolder" "$pfolder"
@@ -61,4 +50,5 @@ hostrsync "$lpfolder" "$pfolder"
 # And then chmod + migrate! The main running file should be executable, and we
 # need to run all migrations. The CURRENT process resets the database and
 # migrates the base and "publish"
-ssh $phost -p $port "cd $pfolder; chmod 700 contentapi; bash -s" -- < "$dfolder/migrate.sh" "$db" "NUL" "publish"
+ssh $phost -p $port "cd $pfolder; chgrp www-data $appname; chmod 750 $appname"
+
