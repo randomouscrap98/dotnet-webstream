@@ -31,12 +31,12 @@ namespace stream
     //Configuration for the stream system
     public class StreamConfig
     {
-        public int SingleDataLimit = -1;
-        public int StreamDataLimit = -1;
+        public int SingleDataLimit {get;set;} = -1;
+        public int StreamDataLimit {get;set;} = -1;
         public string StoreLocation {get;set;} = null;
 
         //Stuff I don't want to set in the json configs.
-        public TimeSpan ListenTimeout = TimeSpan.FromSeconds(60);
+        public TimeSpan ListenTimeout = TimeSpan.FromSeconds(300); //This length PROBABLY doesn't matter....???
         public TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
         public TimeSpan SignalWaitInterval = TimeSpan.FromMilliseconds(20);
     }

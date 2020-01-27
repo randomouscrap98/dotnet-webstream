@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -36,19 +37,46 @@ namespace stream.Controllers
         }
 
         [HttpGet("{room}")]
-        public async Task<ActionResult<string>> Get(string room)
+        public async Task<ActionResult<string>> Get(string room, [FromQuery]int start = 0)
         {
             if(!IsRoomAcceptable(room))
                 return BadRequest("Room name has invalid characters! Try something simpler!");
 
-            
-            return "wow, room is: " + room;
+            try
+            {
+                var s = rooms.GetStream(room);
+                return await rooms.GetDataWhenReady(s, start);
+            }
+            catch(InvalidOperationException ex)
+            {
+                _logger.LogWarning($"System threw a 'handled' exception is Get: {ex}");
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpPost("{room}")]
-        public ActionResult Post(string room, [FromBody]string data)
+        public async Task<ActionResult> Post(string room) //, [FromBody]string data)
         {
-            return Ok(); //NotFound();
+            using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
+            {  
+                string data = await reader.ReadToEndAsync();
+
+                if(!IsRoomAcceptable(room))
+                    return BadRequest("Room name has invalid characters! Try something simpler!");
+
+                try
+                {
+                    var s = rooms.GetStream(room);
+                    rooms.AddData(s, data);
+                }
+                catch(InvalidOperationException ex)
+                {
+                    _logger.LogWarning($"System threw a 'handled' exception is Post: {ex}");
+                    return BadRequest(ex.Message);
+                }
+
+                return Ok();
+            }
         }
     }
 }
