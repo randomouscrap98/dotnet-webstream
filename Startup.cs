@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using stream.Controllers;
 
 namespace stream
 {
@@ -26,6 +27,9 @@ namespace stream
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
+            StreamControllerConfig streamConfig = new StreamControllerConfig();
+            Configuration.Bind("StreamConfig", streamConfig);
+            services.AddSingleton(streamConfig);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -36,12 +40,10 @@ namespace stream
                 app.UseDeveloperExceptionPage();
             }
 
+            app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
             app.UseHttpsRedirection();
-
             app.UseRouting();
-
             app.UseAuthorization();
-
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
