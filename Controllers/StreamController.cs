@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +11,6 @@ namespace stream.Controllers
 {
     public class StreamControllerConfig
     {
-        public string StoreLocation {get;set;} = null;
         public string AcceptableRoom {get;set;} = null;
     }
 
@@ -21,11 +21,13 @@ namespace stream.Controllers
         private readonly ILogger<StreamController> _logger;
 
         public StreamControllerConfig Config;
+        protected StreamSystem rooms;
 
-        public StreamController(ILogger<StreamController> logger, StreamControllerConfig config)
+        public StreamController(ILogger<StreamController> logger, StreamControllerConfig config, StreamSystem rooms)
         {
             _logger = logger;
             this.Config = config;
+            this.rooms = rooms;
         }
 
         protected bool IsRoomAcceptable(string room)

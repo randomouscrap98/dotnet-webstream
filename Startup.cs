@@ -27,9 +27,18 @@ namespace stream
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddControllers();
-            StreamControllerConfig streamConfig = new StreamControllerConfig();
+
+            StreamControllerConfig streamControllerConfig = new StreamControllerConfig();
+            Configuration.Bind("StreamControllerConfig", streamControllerConfig);
+            services.AddSingleton(streamControllerConfig);
+
+            StreamConfig streamConfig = new StreamConfig();
             Configuration.Bind("StreamConfig", streamConfig);
             services.AddSingleton(streamConfig);
+
+            //Only ONE system for every request!
+            var system = new StreamSystem(streamConfig);
+            services.AddSingleton(system);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
