@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace stream
 {
@@ -12,6 +15,17 @@ namespace stream
 
         public StringBuilder Data = new StringBuilder();
         public readonly object Lock = new object();
+
+        //The signaler is used to wake up waiting listeners
+        public ManualResetEvent Signal = new ManualResetEvent(false);
+
+        //The list of listeners should all get flushed every time a signal comes
+        public List<StreamListener> Listeners = new List<StreamListener>();
+    }
+
+    public class StreamListener
+    {
+        public Task Waiter = null;
     }
 
     //Configuration for the stream system
@@ -20,18 +34,25 @@ namespace stream
         public int SingleDataLimit = -1;
         public int StreamDataLimit = -1;
         public string StoreLocation {get;set;} = null;
+
+        //Stuff I don't want to set in the json configs.
+        public TimeSpan ListenTimeout = TimeSpan.FromSeconds(60);
+        public TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
+        public TimeSpan SignalWaitInterval = TimeSpan.FromMilliseconds(20);
     }
 
     //A group of streams, categorized by key.
     public class StreamSystem
     {
+        protected readonly ILogger<StreamSystem> logger;
         protected readonly object Lock = new object();
 
         public StreamConfig Config;
         public Dictionary<string, StreamData> Streams = new Dictionary<string, StreamData>();
 
-        public StreamSystem(StreamConfig config)
+        public StreamSystem(ILogger<StreamSystem> logger, StreamConfig config)
         {
+            this.logger = logger;
             this.Config = config;
         }
 
@@ -60,10 +81,49 @@ namespace stream
             }
         }
 
+        public async Task<string> GetDataWhenReady(StreamData stream, int start)
+        {
+            //JUST IN CASE we need it later (can't make it in the lock section, needed outside!)
+            bool completed = false;
+            var listener = new StreamListener() ;
+
+            lock(stream.Lock)
+            {
+                //No waiting!
+                if(start < stream.Data.Length)
+                    return GetData(stream, start);
+                
+                //Oh, waiting... we're a new listener so add it!
+                listener.Waiter = Task.Run(() => completed = stream.Signal.WaitOne(Config.ListenTimeout));
+                stream.Listeners.Add(listener);
+            }
+
+            //CANNOT wait in the lock! We're just waiting to see if we get data. If we DOOOO, "completed"
+            //will be true!
+            try
+            {
+                await listener.Waiter;
+            }
+            finally
+            {
+                //We're done. Doesn't matter what happened, whether it finished or we threw an exception,
+                //we are NO LONGER listening!
+                stream.Listeners.Remove(listener);
+            }
+
+            if(completed)
+                return GetData(stream, start);
+            else
+                return ""; //No data to return!
+        }
+
         public void AddData(StreamData stream, string data)
         {
             lock(stream.Lock)
             {
+                if(data.Length == 0)
+                    throw new InvalidOperationException("Can't add 0 length data!");
+
                 if(data.Length > Config.SingleDataLimit)
                     throw new InvalidOperationException($"Too much data at once!: {Config.SingleDataLimit}");
 
@@ -73,6 +133,33 @@ namespace stream
 
                 stream.Data.Append(data);
                 stream.UpdateDate = DateTime.Now;
+
+                //Set the signal so all the listeners know they have data!
+                stream.Signal.Set();
+
+                try
+                {
+                    var signalStart = DateTime.Now;
+
+                    //Wait for OUR listeners to clear out! Notice that the listener wait and removal is NOT 
+                    //in a lock: this allows US to hold the lock (since it's probably safer...? we're doing the signalling).
+                    while (stream.Listeners.Count > 0)
+                    {
+                        System.Threading.Thread.Sleep(Config.SignalWaitInterval);
+
+                        if (DateTime.Now - signalStart > Config.SignalTimeout)
+                        {
+                            logger.LogWarning("Timed out while waiting for listeners to process signal!");
+                            break;
+                        }
+                    }
+                }
+                finally
+                {
+                    //ALWAYS get rid of listeners and reset the signal! we don't want to be left in an unknown state!
+                    stream.Listeners.Clear(); //This might be dangerous? IDK, we don't want to wait forever!
+                    stream.Signal.Reset();
+                }
             }
         }
     }

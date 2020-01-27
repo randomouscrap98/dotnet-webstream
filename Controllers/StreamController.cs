@@ -41,6 +41,7 @@ namespace stream.Controllers
             if(!IsRoomAcceptable(room))
                 return BadRequest("Room name has invalid characters! Try something simpler!");
 
+            
             return "wow, room is: " + room;
         }
 

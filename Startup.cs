@@ -37,7 +37,9 @@ namespace stream
             services.AddSingleton(streamConfig);
 
             //Only ONE system for every request!
-            var system = new StreamSystem(streamConfig);
+            var provider = services.BuildServiceProvider();
+
+            var system = (StreamSystem)ActivatorUtilities.CreateInstance(provider, typeof(StreamSystem));
             services.AddSingleton(system);
         }
 
