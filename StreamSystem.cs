@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace stream
@@ -12,6 +15,7 @@ namespace stream
     {
         public DateTime CreateDate = DateTime.Now;
         public DateTime UpdateDate = DateTime.Now;
+        public DateTime SaveDate = new DateTime(0);
 
         public StringBuilder Data = new StringBuilder();
         public readonly object Lock = new object();
@@ -39,10 +43,13 @@ namespace stream
         public TimeSpan ListenTimeout = TimeSpan.FromSeconds(300); //This length PROBABLY doesn't matter....???
         public TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
         public TimeSpan SignalWaitInterval = TimeSpan.FromMilliseconds(20);
+        public TimeSpan SystemCheckInterval = TimeSpan.FromMinutes(10);
+        public TimeSpan DeadRoomLimit = TimeSpan.FromHours(1); //a VERY aggressive saving system
+        public int SavePerMinute = 10;
     }
 
     //A group of streams, categorized by key.
-    public class StreamSystem
+    public class StreamSystem : BackgroundService //IHostedService
     {
         protected readonly ILogger<StreamSystem> logger;
         protected readonly object Lock = new object();
@@ -56,13 +63,104 @@ namespace stream
             this.Config = config;
         }
 
+        protected void SaveStream(string name, StreamData s)
+        {
+            if(!Directory.Exists(Config.StoreLocation))
+                Directory.CreateDirectory(Config.StoreLocation);
+            
+            File.WriteAllText(Path.Combine(Config.StoreLocation, name), s.Data.ToString());
+        }
+
+        protected StreamData LoadStream(string name)
+        {
+            var filename = Path.Combine(Config.StoreLocation, name);
+
+            if(File.Exists(filename))
+                return new StreamData() { Data = new StringBuilder(File.ReadAllText(filename)) };
+
+            return null;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken token)
+        {
+            while(!token.IsCancellationRequested)
+            {
+                //It's ok to do this outside the lock because checking for dead streams isn't super 
+                //important. REMOVING is, so do that later in a lock.
+
+                var removals = new List<string>();
+
+                foreach(var s in Streams)
+                {
+                    //Don't bother with things that aren't completely open right now
+                    if(Monitor.TryEnter(s.Value.Lock))
+                    {
+                        try
+                        {
+                            //If nobody is listening to us and we're old, get rid of it
+                            if (s.Value.Listeners.Count == 0 && DateTime.Now - s.Value.UpdateDate > Config.DeadRoomLimit)
+                            {
+                                SaveStream(s.Key, s.Value);
+                                removals.Add(s.Key);
+                            }
+                        }
+                        finally { Monitor.Exit(s.Value.Lock); }
+                    }
+                }
+
+                if(removals.Count > 0)
+                    logger.LogInformation($"Removing {removals.Count} dead rooms: {string.Join(", ", removals)}");
+
+                //Do NOT process streams unless we're holding the LOCK
+                lock(Lock)
+                {
+                    removals.ForEach(x => Streams.Remove(x));
+                }
+
+                if(removals.Count > 0)
+                    logger.LogInformation($"There are still {Streams.Count} open rooms");
+
+                //Find the streams that haven't been saved in the longest and save the first N of them.
+                var saveStreams = Streams.OrderBy(x => x.Value.SaveDate).Take((int)Math.Ceiling(Config.SavePerMinute * Config.SystemCheckInterval.TotalMinutes)).ToList();
+
+                //Don't need to lock on them: whatever data is in there is... probably fine? what if we're
+                //in the middle of writing chunk data though? the stream will be invalid! eh... that's the price
+                //for in-flight saving.
+                if(saveStreams.Count > 0)
+                {
+                    saveStreams.ForEach(x => SaveStream(x.Key, x.Value));
+                    logger.LogInformation($"Auto-Saved {saveStreams.Count} streams.");
+                }
+
+                await Task.Delay(Config.SystemCheckInterval);
+            }
+
+            //When you're ALL done, try to save them ALLLL
+            logger.LogInformation($"Saving all {Streams.Count} streams on shutdown");
+            Streams.ToList().ForEach(x => SaveStream(x.Key, x.Value));
+        }
+
         public StreamData GetStream(string name)
         {
             //Don't let ANYBODY else mess with the dictionary while we're doing it!
             lock(Lock)
             {
                 if(!Streams.ContainsKey(name))
-                    Streams.Add(name, new StreamData());
+                {
+                    //Look for the stream in permament storage.
+                    var existing = LoadStream(name);
+
+                    //If it's there, add it! otherwise just add a new one
+                    if(existing != null)
+                    {
+                        logger.LogInformation($"Reviving dead room {name}");
+                        Streams.Add(name, existing);
+                    }
+                    else
+                    {
+                        Streams.Add(name, new StreamData());
+                    }
+                }
 
                 return Streams[name];
             }

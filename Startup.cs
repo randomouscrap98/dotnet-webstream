@@ -41,6 +41,7 @@ namespace stream
 
             var system = (StreamSystem)ActivatorUtilities.CreateInstance(provider, typeof(StreamSystem));
             services.AddSingleton(system);
+            services.AddSingleton<IHostedService>(system); //AddHostedService<StreamSystem>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
