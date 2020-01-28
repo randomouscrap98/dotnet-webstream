@@ -37,7 +37,7 @@ namespace stream.Controllers
         }
 
         [HttpGet("{room}")]
-        public async Task<ActionResult<string>> Get(string room, [FromQuery]int start = 0)
+        public async Task<ActionResult<string>> Get(string room, [FromQuery]int start = 0, [FromQuery]int count = -1)
         {
             if(!IsRoomAcceptable(room))
                 return BadRequest("Room name has invalid characters! Try something simpler!");
@@ -45,7 +45,7 @@ namespace stream.Controllers
             try
             {
                 var s = rooms.GetStream(room);
-                return await rooms.GetDataWhenReady(s, start);
+                return await rooms.GetDataWhenReady(s, start, count);
             }
             catch(InvalidOperationException ex)
             {

@@ -43,7 +43,7 @@ namespace stream
         public TimeSpan ListenTimeout = TimeSpan.FromSeconds(300); //This length PROBABLY doesn't matter....???
         public TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
         public TimeSpan SignalWaitInterval = TimeSpan.FromMilliseconds(20);
-        public TimeSpan SystemCheckInterval = TimeSpan.FromMinutes(10);
+        public TimeSpan SystemCheckInterval = TimeSpan.FromMinutes(1);
         public TimeSpan DeadRoomLimit = TimeSpan.FromHours(1); //a VERY aggressive saving system
         public int SavePerMinute = 10;
     }
@@ -130,7 +130,7 @@ namespace stream
                 if(saveStreams.Count > 0)
                 {
                     saveStreams.ForEach(x => SaveStream(x.Key, x.Value));
-                    logger.LogInformation($"Auto-Saved {saveStreams.Count} streams.");
+                    logger.LogDebug($"Auto-Saved {saveStreams.Count} streams.");
                 }
 
                 await Task.Delay(Config.SystemCheckInterval);
@@ -167,7 +167,7 @@ namespace stream
             }
         }
 
-        public string GetData(StreamData stream, int start)
+        public string GetData(StreamData stream, int start, int count = -1)
         {
             lock(stream.Lock)
             {
@@ -176,11 +176,14 @@ namespace stream
                 if(start >= stream.Data.Length)
                     throw new InvalidOperationException($"Start beyond end of data: {stream.Data.Length}!");
 
-                return stream.Data.ToString(start, stream.Data.Length - start);
+                if (count < 0 || count > stream.Data.Length - start)
+                    count = stream.Data.Length - start;
+
+                return stream.Data.ToString(start, count);
             }
         }
 
-        public async Task<string> GetDataWhenReady(StreamData stream, int start)
+        public async Task<string> GetDataWhenReady(StreamData stream, int start, int count = -1)
         {
             //JUST IN CASE we need it later (can't make it in the lock section, needed outside!)
             bool completed = false;
@@ -190,7 +193,7 @@ namespace stream
             {
                 //No waiting!
                 if(start < stream.Data.Length)
-                    return GetData(stream, start);
+                    return GetData(stream, start, count);
                 
                 //Oh, waiting... we're a new listener so add it!
                 listener.Waiter = Task.Run(() => completed = stream.Signal.WaitOne(Config.ListenTimeout));
@@ -211,7 +214,7 @@ namespace stream
             }
 
             if(completed)
-                return GetData(stream, start);
+                return GetData(stream, start, count);
             else
                 return ""; //No data to return!
         }
