@@ -69,6 +69,7 @@ namespace stream
                 Directory.CreateDirectory(Config.StoreLocation);
             
             File.WriteAllText(Path.Combine(Config.StoreLocation, name), s.Data.ToString());
+            s.SaveDate = DateTime.Now;
         }
 
         protected StreamData LoadStream(string name)
