@@ -63,12 +63,15 @@ namespace stream
             this.Config = config;
         }
 
-        protected void SaveStream(string name, StreamData s)
+        protected void SaveStream(string name, StreamData s, bool forceEmpty = false)
         {
             if(!Directory.Exists(Config.StoreLocation))
                 Directory.CreateDirectory(Config.StoreLocation);
-            
-            File.WriteAllText(Path.Combine(Config.StoreLocation, name), s.Data.ToString());
+
+            //Don't save empty rooms (unless we're forced to!)
+            if(s.Data.Length > 0 || forceEmpty)
+                File.WriteAllText(Path.Combine(Config.StoreLocation, name), s.Data.ToString());
+
             s.SaveDate = DateTime.Now;
         }
 

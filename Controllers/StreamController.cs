@@ -54,6 +54,22 @@ namespace stream.Controllers
             }
         }
 
+        public class Constants
+        {
+            public int MaxStreamSize {get;set;}
+            public int MaxSingleChunk {get;set;}
+        }
+
+        [HttpGet("constants")]
+        public ActionResult<Constants> Get()
+        {
+            return new Constants()
+            {
+                MaxStreamSize = rooms.Config.StreamDataLimit,
+                MaxSingleChunk = rooms.Config.SingleDataLimit
+            };
+        }
+
         [HttpPost("{room}")]
         public async Task<ActionResult> Post(string room) //, [FromBody]string data)
         {
