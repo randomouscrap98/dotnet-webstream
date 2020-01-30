@@ -27,9 +27,28 @@ namespace stream
         public List<StreamListener> Listeners = new List<StreamListener>();
     }
 
+    //Data sent from a signal to waiters through the listener object. Should
+    //be the same data for every listener!
+    public class SignalData
+    {
+        //The amount of listeners at signal time.
+        public int ListenersBeforeSignal = 0;
+    }
+
+    //The stream and signal data retrieved from waiting. Signal data will be null
+    //if no waiting was involved.
+    public class ReadyData
+    {
+        public string Data = "";
+        public SignalData SignalData = null;
+    }
+
+    //Someone waiting for a stream. Signalled by data additions. The signal data is added
+    //through this class.
     public class StreamListener
     {
         public Task Waiter = null;
+        public SignalData SignalData = new SignalData();
     }
 
     //Configuration for the stream system
@@ -186,40 +205,50 @@ namespace stream
             }
         }
 
-        public async Task<string> GetDataWhenReady(StreamData stream, int start, int count = -1)
+        public async Task<ReadyData> GetDataWhenReady(StreamData stream, int start, int count = -1)
         {
             //JUST IN CASE we need it later (can't make it in the lock section, needed outside!)
             bool completed = false;
-            var listener = new StreamListener() ;
+            StreamListener listener = null; 
+            ReadyData result = new ReadyData();
 
             lock(stream.Lock)
             {
-                //No waiting!
                 if(start < stream.Data.Length)
-                    return GetData(stream, start, count);
-                
-                //Oh, waiting... we're a new listener so add it!
-                listener.Waiter = Task.Run(() => completed = stream.Signal.WaitOne(Config.ListenTimeout));
-                stream.Listeners.Add(listener);
+                {
+                    //No waiting! We're already done! The stream can never get smaller!
+                    completed = true;
+                }
+                else
+                {
+                    //Oh, waiting... we're a new listener so add it!
+                    listener = new StreamListener();
+                    listener.Waiter = Task.Run(() => completed = stream.Signal.WaitOne(Config.ListenTimeout));
+                    stream.Listeners.Add(listener);
+                }
             }
 
-            //CANNOT wait in the lock! We're just waiting to see if we get data. If we DOOOO, "completed"
-            //will be true!
-            try
+            //Don't need to listen if there's no listener!
+            if(listener != null)
             {
-                await listener.Waiter;
-            }
-            finally
-            {
-                //We're done. Doesn't matter what happened, whether it finished or we threw an exception,
-                //we are NO LONGER listening!
-                stream.Listeners.Remove(listener);
+                //CANNOT wait in the lock! We're just waiting to see if we get data. If we DOOOO, "completed" will be true!
+                try
+                {
+                    await listener.Waiter;
+                }
+                finally
+                {
+                    //We're done. Doesn't matter what happened, whether it finished or we threw an exception,
+                    //we are NO LONGER listening!
+                    result.SignalData = listener.SignalData; //this might be nothing
+                    stream.Listeners.Remove(listener);
+                }
             }
 
             if(completed)
-                return GetData(stream, start, count);
-            else
-                return ""; //No data to return!
+                result.Data = GetData(stream, start, count);
+
+            return result;
         }
 
         public void AddData(StreamData stream, string data)
@@ -238,6 +267,16 @@ namespace stream
 
                 stream.Data.Append(data);
                 stream.UpdateDate = DateTime.Now;
+
+                var signalData = new SignalData()
+                {
+                    ListenersBeforeSignal = stream.Listeners.Count
+                };
+
+                //Set the signal data before signalling so they have "communication" from us. NOT SAFE
+                //since someone could... you know, add a listener... or could they? We hold the lock for
+                //the stream and you can't add a listener without the lock! So probably safe...
+                stream.Listeners.ForEach(x => x.SignalData = signalData);
 
                 //Set the signal so all the listeners know they have data!
                 stream.Signal.Set();

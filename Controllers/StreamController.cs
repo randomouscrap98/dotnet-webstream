@@ -29,7 +29,7 @@ namespace stream.Controllers
         public class StreamResult
         {
             public string data {get;set;}
-            public int listeners {get;set;}
+            public int signalled {get;set;}
             public int used {get;set;}
             public int limit {get;set;}
         }
@@ -67,14 +67,18 @@ namespace stream.Controllers
 
             var s = rooms.GetStream(room);
 
+            var data = await rooms.GetDataWhenReady(s, query.start, query.count);
+
             var result = new StreamResult()
             {
-                listeners = s.Listeners.Count,
-                data = await rooms.GetDataWhenReady(s, query.start, query.count),
-                limit = rooms.Config.StreamDataLimit
+                data = data.Data,
+                limit = rooms.Config.StreamDataLimit,
+                used = s.Data.Length,
+                signalled = 0
             };
 
-            result.used = result.data.Length;
+            if(data.SignalData != null)
+                result.signalled = data.SignalData.ListenersBeforeSignal;
 
             return result;
         }
@@ -115,7 +119,7 @@ namespace stream.Controllers
         }
 
         [HttpPost("{room}")]
-        public async Task<ActionResult> Post(string room) //, [FromBody]string data)
+        public async Task<ActionResult> Post(string room)
         {
             using (StreamReader reader = new StreamReader(Request.Body, Encoding.UTF8))
             {  
