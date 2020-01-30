@@ -15,10 +15,31 @@ namespace stream.Controllers
         public string AcceptableRoom {get;set;} = null;
     }
 
+
     [ApiController]
     [Route("[controller]")]
     public class StreamController : ControllerBase
     {
+        public class StreamQuery
+        {
+            public int start {get;set;} = 0;
+            public int count {get;set;} = -1;
+        }
+
+        public class StreamResult
+        {
+            public string data {get;set;}
+            public int listeners {get;set;}
+            public int used {get;set;}
+            public int limit {get;set;}
+        }
+
+        public class Constants
+        {
+            public int maxStreamSize {get;set;}
+            public int maxSingleChunk {get;set;}
+        }
+
         private readonly ILogger<StreamController> _logger;
 
         public StreamControllerConfig Config;
@@ -36,16 +57,33 @@ namespace stream.Controllers
             return Regex.IsMatch(room, Config.AcceptableRoom);
         }
 
-        [HttpGet("{room}")]
-        public async Task<ActionResult<string>> Get(string room, [FromQuery]int start = 0, [FromQuery]int count = -1)
+        protected async Task<StreamResult> GetStreamResult(string room, StreamQuery query = null)
         {
-            if(!IsRoomAcceptable(room))
-                return BadRequest("Room name has invalid characters! Try something simpler!");
+            if(query == null)
+                query = new StreamQuery();
 
+            if(!IsRoomAcceptable(room))
+                throw new InvalidOperationException("Room name has invalid characters! Try something simpler!");
+
+            var s = rooms.GetStream(room);
+
+            var result = new StreamResult()
+            {
+                listeners = s.Listeners.Count,
+                data = await rooms.GetDataWhenReady(s, query.start, query.count),
+                limit = rooms.Config.StreamDataLimit
+            };
+
+            result.used = result.data.Length;
+
+            return result;
+        }
+
+        protected async Task<ActionResult<T>> HandleException<T>(Func<Task<T>> attempt)
+        {
             try
             {
-                var s = rooms.GetStream(room);
-                return await rooms.GetDataWhenReady(s, start, count);
+                return await attempt();
             }
             catch(InvalidOperationException ex)
             {
@@ -54,10 +92,16 @@ namespace stream.Controllers
             }
         }
 
-        public class Constants
+        [HttpGet("{room}")]
+        public async Task<ActionResult<string>> Get(string room, [FromQuery]StreamQuery query = null)
         {
-            public int MaxStreamSize {get;set;}
-            public int MaxSingleChunk {get;set;}
+            return await HandleException(async () => (await GetStreamResult(room, query)).data);
+        }
+
+        [HttpGet("{room}/json")]
+        public async Task<ActionResult<StreamResult>> GetJson(string room, [FromQuery]StreamQuery query = null)
+        {
+            return await HandleException(async () => await GetStreamResult(room, query));
         }
 
         [HttpGet("constants")]
@@ -65,8 +109,8 @@ namespace stream.Controllers
         {
             return new Constants()
             {
-                MaxStreamSize = rooms.Config.StreamDataLimit,
-                MaxSingleChunk = rooms.Config.SingleDataLimit
+                maxStreamSize = rooms.Config.StreamDataLimit,
+                maxSingleChunk = rooms.Config.SingleDataLimit
             };
         }
 
