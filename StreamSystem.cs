@@ -108,59 +108,71 @@ namespace stream
         {
             while(!token.IsCancellationRequested)
             {
-                //It's ok to do this outside the lock because checking for dead streams isn't super 
-                //important. REMOVING is, so do that later in a lock.
-
-                var removals = new List<string>();
-
-                foreach(var s in Streams)
+                try
                 {
-                    //Don't bother with things that aren't completely open right now
-                    if(Monitor.TryEnter(s.Value.Lock))
+                    //It's ok to do this outside the lock because checking for dead streams isn't super 
+                    //important. REMOVING is, so do that later in a lock.
+
+                    var removals = new List<string>();
+
+                    foreach (var s in Streams)
                     {
-                        try
+                        //Don't bother with things that aren't completely open right now
+                        if (Monitor.TryEnter(s.Value.Lock))
                         {
-                            //If nobody is listening to us and we're old, get rid of it
-                            if (s.Value.Listeners.Count == 0 && DateTime.Now - s.Value.UpdateDate > Config.DeadRoomLimit)
+                            try
                             {
-                                SaveStream(s.Key, s.Value);
-                                removals.Add(s.Key);
+                                //If nobody is listening to us and we're old, get rid of it
+                                if (s.Value.Listeners.Count == 0 && DateTime.Now - s.Value.UpdateDate > Config.DeadRoomLimit)
+                                {
+                                    SaveStream(s.Key, s.Value);
+                                    removals.Add(s.Key);
+                                }
                             }
+                            finally { Monitor.Exit(s.Value.Lock); }
                         }
-                        finally { Monitor.Exit(s.Value.Lock); }
+                    }
+
+                    if (removals.Count > 0)
+                        logger.LogInformation($"Removing {removals.Count} dead rooms: {string.Join(", ", removals)}");
+
+                    //Do NOT process streams unless we're holding the LOCK
+                    lock (Lock)
+                    {
+                        removals.ForEach(x => Streams.Remove(x));
+                    }
+
+                    if (removals.Count > 0)
+                        logger.LogInformation($"There are still {Streams.Count} open rooms");
+
+                    //Find the streams that haven't been saved in the longest and save the first N of them.
+                    var saveStreams = Streams.OrderBy(x => x.Value.SaveDate).Take((int)Math.Ceiling(Config.SavePerMinute * Config.SystemCheckInterval.TotalMinutes)).ToList();
+
+                    //Don't need to lock on them: whatever data is in there is... probably fine? what if we're
+                    //in the middle of writing chunk data though? the stream will be invalid! eh... that's the price
+                    //for in-flight saving.
+                    if (saveStreams.Count > 0)
+                    {
+                        saveStreams.ForEach(x => SaveStream(x.Key, x.Value));
+                        logger.LogDebug($"Auto-Saved {saveStreams.Count} streams.");
                     }
                 }
-
-                if(removals.Count > 0)
-                    logger.LogInformation($"Removing {removals.Count} dead rooms: {string.Join(", ", removals)}");
-
-                //Do NOT process streams unless we're holding the LOCK
-                lock(Lock)
+                catch(Exception ex)
                 {
-                    removals.ForEach(x => Streams.Remove(x));
-                }
-
-                if(removals.Count > 0)
-                    logger.LogInformation($"There are still {Streams.Count} open rooms");
-
-                //Find the streams that haven't been saved in the longest and save the first N of them.
-                var saveStreams = Streams.OrderBy(x => x.Value.SaveDate).Take((int)Math.Ceiling(Config.SavePerMinute * Config.SystemCheckInterval.TotalMinutes)).ToList();
-
-                //Don't need to lock on them: whatever data is in there is... probably fine? what if we're
-                //in the middle of writing chunk data though? the stream will be invalid! eh... that's the price
-                //for in-flight saving.
-                if(saveStreams.Count > 0)
-                {
-                    saveStreams.ForEach(x => SaveStream(x.Key, x.Value));
-                    logger.LogDebug($"Auto-Saved {saveStreams.Count} streams.");
+                    logger.LogError($"Failed during scheduled background work: {ex}");
                 }
 
                 await Task.Delay(Config.SystemCheckInterval);
             }
 
             //When you're ALL done, try to save them ALLLL
-            logger.LogInformation($"Saving all {Streams.Count} streams on shutdown");
-            Streams.ToList().ForEach(x => SaveStream(x.Key, x.Value));
+            await ForceSaveAll();
+        }
+
+        public async Task ForceSaveAll()
+        {
+            logger.LogInformation($"Force saving all {Streams.Count} streams (regardless of state)");
+            await Task.Run(() => Streams.ToList().ForEach(x => SaveStream(x.Key, x.Value)));
         }
 
         public StreamData GetStream(string name)

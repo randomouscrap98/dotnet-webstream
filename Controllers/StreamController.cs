@@ -41,6 +41,8 @@ namespace stream.Controllers
         }
 
         private readonly ILogger<StreamController> _logger;
+        private DateTime LastSaveAll = new DateTime(0);
+        private readonly object SaveAllLock = new object();
 
         public StreamControllerConfig Config;
         protected StreamSystem rooms;
@@ -91,7 +93,7 @@ namespace stream.Controllers
             }
             catch(InvalidOperationException ex)
             {
-                _logger.LogWarning($"System threw a 'handled' exception is Get: {ex}");
+                _logger.LogWarning($"System threw a 'handled' exception: {ex.Message}");
                 return BadRequest(ex.Message);
             }
         }
@@ -116,6 +118,22 @@ namespace stream.Controllers
                 maxStreamSize = rooms.Config.StreamDataLimit,
                 maxSingleChunk = rooms.Config.SingleDataLimit
             };
+        }
+
+        [HttpGet("saveall")]
+        public async Task<ActionResult<string>> SaveAll()
+        {
+            //This ensures only ONE person will get through the save-all time barrier
+            lock(SaveAllLock)
+            {
+                if(DateTime.Now - LastSaveAll < TimeSpan.FromMinutes(1))
+                    return BadRequest("Cannot save that frequently!");
+                else
+                    LastSaveAll = DateTime.Now;
+            }
+
+            await rooms.ForceSaveAll();
+            return "Saved all streams";
         }
 
         [HttpPost("{room}")]
