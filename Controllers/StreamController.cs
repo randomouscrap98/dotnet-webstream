@@ -61,26 +61,26 @@ namespace stream.Controllers
 
         protected async Task<StreamResult> GetStreamResult(string room, StreamQuery query = null)
         {
-            if(query == null)
-                query = new StreamQuery();
-
             if(!IsRoomAcceptable(room))
                 throw new InvalidOperationException("Room name has invalid characters! Try something simpler!");
 
             var s = rooms.GetStream(room);
 
-            var data = await rooms.GetDataWhenReady(s, query.start, query.count);
-
             var result = new StreamResult()
             {
-                data = data.Data,
                 limit = rooms.Config.StreamDataLimit,
                 used = s.Data.Length,
                 signalled = 0
             };
 
-            if(data.SignalData != null)
-                result.signalled = data.SignalData.ListenersBeforeSignal;
+            if(query != null)
+            {
+                var data = await rooms.GetDataWhenReady(s, query.start, query.count);
+                result.data = data.Data;
+
+                if(data.SignalData != null)
+                    result.signalled = data.SignalData.ListenersBeforeSignal;
+            }
 
             return result;
         }
@@ -99,15 +99,24 @@ namespace stream.Controllers
         }
 
         [HttpGet("{room}")]
-        public async Task<ActionResult<string>> Get(string room, [FromQuery]StreamQuery query = null)
+        public Task<ActionResult<string>> Get(string room, [FromQuery]StreamQuery query = null)
         {
-            return await HandleException(async () => (await GetStreamResult(room, query)).data);
+            if(query == null)
+                query = new StreamQuery();
+
+            return HandleException(async () => (await GetStreamResult(room, query)).data);
         }
 
         [HttpGet("{room}/json")]
         public async Task<ActionResult<StreamResult>> GetJson(string room, [FromQuery]StreamQuery query = null)
         {
             return await HandleException(async () => await GetStreamResult(room, query));
+        }
+
+        [HttpGet("{room}/info")]
+        public async Task<ActionResult<StreamResult>> GetInfo(string room)
+        {
+            return await HandleException(async () => await GetStreamResult(room));
         }
 
         [HttpGet("constants")]
