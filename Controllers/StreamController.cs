@@ -24,6 +24,7 @@ namespace stream.Controllers
         {
             public int start {get;set;} = 0;
             public int count {get;set;} = -1;
+            public bool nonblocking {get;set;} = false;
         }
 
         public class StreamResult
@@ -75,11 +76,18 @@ namespace stream.Controllers
 
             if(query != null)
             {
-                var data = await rooms.GetDataWhenReady(s, query.start, query.count);
-                result.data = data.Data;
+                if(query.nonblocking)
+                {
+                    result.data = rooms.GetData(s, query.start, query.count);
+                }
+                else 
+                {
+                    var data = await rooms.GetDataWhenReady(s, query.start, query.count);
+                    result.data = data.Data;
 
-                if(data.SignalData != null)
-                    result.signalled = data.SignalData.ListenersBeforeSignal;
+                    if(data.SignalData != null)
+                        result.signalled = data.SignalData.ListenersBeforeSignal;
+                }
             }
 
             return result;
@@ -113,11 +121,11 @@ namespace stream.Controllers
             return await HandleException(async () => await GetStreamResult(room, query));
         }
 
-        [HttpGet("{room}/info")]
-        public async Task<ActionResult<StreamResult>> GetInfo(string room)
-        {
-            return await HandleException(async () => await GetStreamResult(room));
-        }
+        //[HttpGet("{room}/info")]
+        //public async Task<ActionResult<StreamResult>> GetInfo(string room)
+        //{
+        //    return await HandleException(async () => await GetStreamResult(room));
+        //}
 
         [HttpGet("constants")]
         public ActionResult<Constants> Get()

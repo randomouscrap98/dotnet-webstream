@@ -207,6 +207,11 @@ namespace stream
             {
                 if(start < 0)
                     throw new InvalidOperationException("Start less than zero!");
+
+                //I don't care what the inputs are, if the stream is empty, you can have it
+                if(stream.Data.Length == 0)
+                    return "";
+
                 if(start >= stream.Data.Length)
                     throw new InvalidOperationException($"Start beyond end of data: {stream.Data.Length}!");
 
