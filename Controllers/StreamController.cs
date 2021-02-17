@@ -25,7 +25,7 @@ namespace stream.Controllers
             public int start {get;set;} = 0;
             public int count {get;set;} = -1;
             public bool nonblocking {get;set;} = false;
-            public bool readonlyname {get;set;} = false;
+            public bool readonlykey {get;set;} = false;
         }
 
         public class StreamResult
@@ -68,7 +68,7 @@ namespace stream.Controllers
         protected async Task<StreamResult> GetStreamResult(string room, StreamQuery query = null)
         {
             //This will throw an exception if there's no GetItem association, that should be good enough.
-            if(query?.readonlyname == true)
+            if(query?.readonlykey == true)
                 room = readonlyNames.GetItem(room);
 
             if(!IsRoomAcceptable(room))
