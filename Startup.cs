@@ -1,15 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using stream.Controllers;
 
 namespace stream
@@ -36,11 +29,16 @@ namespace stream
             Configuration.Bind("StreamConfig", streamConfig);
             services.AddSingleton(streamConfig);
 
+            //Do something more with this later
+            services.AddSingleton(new RandomNameAssociationConfig());
+
             //Only ONE system for every request!
             var provider = services.BuildServiceProvider();
 
-            var system = (StreamSystem)ActivatorUtilities.CreateInstance(provider, typeof(StreamSystem));
+            var system = ActivatorUtilities.CreateInstance<StreamSystem>(provider);
+            var readonlynames = ActivatorUtilities.CreateInstance<RandomNameAssociation<string>>(provider);
             services.AddSingleton(system);
+            services.AddSingleton(readonlynames);
             services.AddSingleton<IHostedService>(system); //AddHostedService<StreamSystem>();
         }
 

@@ -25,11 +25,13 @@ namespace stream.Controllers
             public int start {get;set;} = 0;
             public int count {get;set;} = -1;
             public bool nonblocking {get;set;} = false;
+            public bool readonlyname {get;set;} = false;
         }
 
         public class StreamResult
         {
             public string data {get;set;}
+            public string readonlykey {get;set;}
             public int signalled {get;set;}
             public int used {get;set;}
             public int limit {get;set;}
@@ -42,17 +44,20 @@ namespace stream.Controllers
         }
 
         private readonly ILogger<StreamController> _logger;
-        private DateTime LastSaveAll = new DateTime(0);
-        private readonly object SaveAllLock = new object();
+        private static DateTime LastSaveAll = new DateTime(0);
+        private static readonly object SaveAllLock = new object();
 
         public StreamControllerConfig Config;
         protected StreamSystem rooms;
+        protected RandomNameAssociation<string> readonlyNames;
 
-        public StreamController(ILogger<StreamController> logger, StreamControllerConfig config, StreamSystem rooms)
+        public StreamController(ILogger<StreamController> logger, StreamControllerConfig config, 
+            StreamSystem rooms, RandomNameAssociation<string> readonlyNames)
         {
             _logger = logger;
             this.Config = config;
             this.rooms = rooms;
+            this.readonlyNames = readonlyNames;
         }
 
         protected bool IsRoomAcceptable(string room)
@@ -62,15 +67,21 @@ namespace stream.Controllers
 
         protected async Task<StreamResult> GetStreamResult(string room, StreamQuery query = null)
         {
+            //This will throw an exception if there's no GetItem association, that should be good enough.
+            if(query?.readonlyname == true)
+                room = readonlyNames.GetItem(room);
+
             if(!IsRoomAcceptable(room))
                 throw new InvalidOperationException("Room name has invalid characters! Try something simpler!");
 
             var s = rooms.GetStream(room);
+            var r = readonlyNames.GetLink(room);
 
             var result = new StreamResult()
             {
                 limit = rooms.Config.StreamDataLimit,
                 used = s.Data.Length,
+                readonlykey = r,
                 signalled = 0
             };
 
@@ -120,12 +131,6 @@ namespace stream.Controllers
         {
             return await HandleException(async () => await GetStreamResult(room, query));
         }
-
-        //[HttpGet("{room}/info")]
-        //public async Task<ActionResult<StreamResult>> GetInfo(string room)
-        //{
-        //    return await HandleException(async () => await GetStreamResult(room));
-        //}
 
         [HttpGet("constants")]
         public ActionResult<Constants> Get()

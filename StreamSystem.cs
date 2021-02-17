@@ -58,13 +58,14 @@ namespace stream
         public int StreamDataLimit {get;set;} = -1;
         public string StoreLocation {get;set;} = null;
 
-        //Stuff I don't want to set in the json configs.
+        //Stuff I don't want to set in the json configs (yet)
         public TimeSpan ListenTimeout = TimeSpan.FromSeconds(300); //This length PROBABLY doesn't matter....???
         public TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
         public TimeSpan SignalWaitInterval = TimeSpan.FromMilliseconds(20);
         public TimeSpan SystemCheckInterval = TimeSpan.FromMinutes(1);
         public TimeSpan DeadRoomLimit = TimeSpan.FromHours(1); //a VERY aggressive saving system
         public int SavePerMinute = 10;
+
     }
 
     //A group of streams, categorized by key.
@@ -175,6 +176,12 @@ namespace stream
             await Task.Run(() => Streams.ToList().ForEach(x => SaveStream(x.Key, x.Value)));
         }
 
+        /// <summary>
+        /// Get an existing stream from memory. If it's not in memory, check disk. If it's not on disk, create a new one.
+        /// In any case, at the end of this call, a stream is guaranteed to be in memory.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
         public StreamData GetStream(string name)
         {
             //Don't let ANYBODY else mess with the dictionary while we're doing it!
@@ -185,18 +192,23 @@ namespace stream
                     //Look for the stream in permament storage.
                     var existing = LoadStream(name);
 
-                    //If it's there, add it! otherwise just add a new one
-                    if(existing != null)
+                    //Oops it didn't exist, set to a new one
+                    if(existing == null)
                     {
-                        logger.LogInformation($"Reviving dead room {name}");
-                        Streams.Add(name, existing);
+                        logger.LogInformation($"Creating new room {name}");
+                        existing = new StreamData();
                     }
                     else
                     {
-                        Streams.Add(name, new StreamData());
+                        //Just log that it was found
+                        logger.LogInformation($"Reviving dead room {name}");
                     }
+
+                    Streams.Add(name, existing);
                 }
 
+                //NOTE: because we don't get rid of readonly key associations, we ASSUME that if
+                //we have an existing stream, there IS a readonly key for it!
                 return Streams[name];
             }
         }
